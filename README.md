@@ -24,7 +24,7 @@ Compared with SEIR models with fixed transmission, the UDE captures non-stationa
 To use the framework:
 1. Set up a virtual environment (using `requirements.txt`).
 2. Conduct hyperparameter optimisation (e.g. `python optimization/two_phase_integrative_ude_optuna.py --phase_cut_date 2023-03-15 --objective cases_and_conc`).
-3. Use the results from step 3 to perform multistart optimisation (e.g. `python optimization/two_phase_integrative_ude_multistart.py --phase_cut_date 2023-03-15 --seed_batch $SLURM_ARRAY_TASK_ID --n_days_pred_conc 0`).
+3. Use the results from step 2 to perform multistart optimisation (e.g. `python optimization/two_phase_integrative_ude_multistart.py --phase_cut_date 2023-03-15 --seed_batch $SLURM_ARRAY_TASK_ID --n_days_pred_conc 0`).
 4. Evaluate the results (`python analysis/models/multistart_create_metric_df.py --phase_cut_date 2024-01-31 --town Bonn` and `python analysis/models/eval_multistart.py --phase_cut_date 2024-01-31 --cutoff_value 0.05 --town Bonn`).
 
 These Python scripts must be executed for each phase cut date, objective function, and city of interest. Note that for all Rhineland-Palatinate cities, the suffix `_sentisurv` must be added to the Python filenames. This provides an alternative data loading scheme that allows for multiple cities in one dataset. To use the framework for new datasets, data preprocessing has to be customized to fit the data format of the preprocessed Bonn or preprocessed Rhineland-Palatinate datasets. 

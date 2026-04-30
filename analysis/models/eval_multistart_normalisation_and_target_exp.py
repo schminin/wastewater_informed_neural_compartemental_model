@@ -41,6 +41,8 @@ _parser.add_argument(
 )
 _parser.add_argument("--n_days_pred_conc", type=int, required=False, default=0)
 _parser.add_argument("--objective", type=str, required=False, help="Objective function to optimize", default="cases_and_conc")
+_parser.add_argument("--substance_normalization", type=str, required=False, default="flow")
+_parser.add_argument("--gene_target", type=str, required=False, default="N1")
 
 
 _args = _parser.parse_args()
@@ -51,15 +53,15 @@ objective = _args.objective
 
 # read in results from multistart
 if _args.n_days_pred_conc == 0:
-    multistart_path = f"{town}/multistart_models/{phase_cut_date}_{objective}"
-    hparams_path = f"{town}/optuna_best_{phase_cut_date}_{objective}/hparams.json"
-    out_dir = f"{town}/multistart_results/{phase_cut_date}_{objective}/visualizations_{cutoff_value}"
-    df = pd.read_csv(f"{town}/multistart_results/{phase_cut_date}_{objective}/multistart_metrics_{phase_cut_date}.csv")
+    multistart_path = f"Bonn_{_args.substance_normalization}_{_args.gene_target}/multistart_models/{phase_cut_date}_{objective}"
+    hparams_path = f"Bonn_{_args.substance_normalization}_{_args.gene_target}/optuna_best_{phase_cut_date}_{objective}/hparams.json"
+    out_dir = f"Bonn_{_args.substance_normalization}_{_args.gene_target}/multistart_results/{phase_cut_date}_{objective}/visualizations_{cutoff_value}"
+    df = pd.read_csv(f"Bonn_{_args.substance_normalization}_{_args.gene_target}/multistart_results/{phase_cut_date}_{objective}/multistart_metrics_{phase_cut_date}.csv")
 else:
-    multistart_path = f"{town}/multistart_models/{phase_cut_date}_{objective}_pred_{_args.n_days_pred_conc}d_conc"
-    hparams_path = f"{town}/optuna_best_{phase_cut_date}_{objective}_pred_{_args.n_days_pred_conc}d_conc/hparams.json"
-    out_dir = f"{town}/multistart_results/{phase_cut_date}_{objective}_pred_{_args.n_days_pred_conc}d_conc/visualizations_{cutoff_value}"
-    df = pd.read_csv(f"{town}/multistart_results/{phase_cut_date}_{objective}_pred_{_args.n_days_pred_conc}d_conc/multistart_metrics_{phase_cut_date}.csv")
+    multistart_path = f"Bonn_{_args.substance_normalization}_{_args.gene_target}/multistart_models/{phase_cut_date}_{objective}_pred_{_args.n_days_pred_conc}d_conc"
+    hparams_path = f"Bonn_{_args.substance_normalization}_{_args.gene_target}/optuna_best_{phase_cut_date}_{objective}_pred_{_args.n_days_pred_conc}d_conc/hparams.json"
+    out_dir = f"Bonn_{_args.substance_normalization}_{_args.gene_target}/multistart_results/{phase_cut_date}_{objective}_pred_{_args.n_days_pred_conc}d_conc/visualizations_{cutoff_value}"
+    df = pd.read_csv(f"Bonn_{_args.substance_normalization}_{_args.gene_target}/multistart_results/{phase_cut_date}_{objective}_pred_{_args.n_days_pred_conc}d_conc/multistart_metrics_{phase_cut_date}.csv")
 os.makedirs(out_dir, exist_ok=True)
 
 
@@ -95,8 +97,8 @@ base_config = {
             "sampling_area": "North_South",
             "project": "both", # one of ESI_CorA, AMELAG
             "max_precipitation_subsetting": None, # one of None, dry, light_rain
-            "substance_normalization": "flow", # one of None, PMMoV, flow
-            "gene_target": "N1", # one of N1, N2
+            "substance_normalization": _args.substance_normalization, # one of None, PMMoV, flow
+            "gene_target": _args.gene_target, # one of N1, N2
             "log_scale": True, # this only considers WW measurements, not case counts
         },
 
@@ -203,10 +205,6 @@ def get_ensemble_predictions(model_ids, reporting_delays, t_all, t_phase_1, mult
             underreporting_model=base_config.get("underreporting_model", "none")) # days, delay between infection and reporting
 
         m = eqx.tree_deserialise_leaves(f"{multistart_result_path}/{model_id}_model.eqx", base_model)
-        all_noise_params.append(jnp.asarray((
-            1.0 + jax.nn.softplus(m.par_vmr),
-            jnp.exp(m.log_sigma_C),
-        )))
         preds = get_model_predictions(m, t_all, t_phase_1)
         all_SEIR.append(preds["SEIR"])
         all_beta.append(preds["beta"])
@@ -215,6 +213,10 @@ def get_ensemble_predictions(model_ids, reporting_delays, t_all, t_phase_1, mult
         all_I7.append(preds["I7_reported"])
         all_logC.append(preds["log_concentration"])
         all_shedding.append(preds["shedding_curve"])
+        all_noise_params.append(jnp.asarray((
+            1.0 + jax.nn.softplus(m.par_vmr),
+            jnp.exp(m.log_sigma_C),
+        )))
 
 
     # Stack arrays along ensemble axis
@@ -462,6 +464,7 @@ for key, value in ensemble_predictions.items():
         jnp.savez(f"{out_dir}/ensemble_predictions_{key}.npz", **value)
     else:
         jnp.savez(f"{out_dir}/ensemble_predictions_{key}.npz", all=value)
+
 
 
 

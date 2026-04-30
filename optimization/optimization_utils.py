@@ -622,6 +622,167 @@ def two_phase_integrative_model_constant_transmission_train_and_evaluate(config,
 
 
 
+def two_phase_integrative_model_train_and_evaluate_cases_only(config, writer, experiment_log_dir, trial=1, print_every=100):
+    
+    data = two_phase_integrative_model_load_data(config)
+
+    model_key = jr.key(config["seed"])
+
+    model = two_phase_integrative_ude.IntegrativeModel(
+        width_size=config["width_size"],
+        depth=config["depth"],
+        activation=model_utils.activation_fct_mapper[config["activation"]],
+        underreporting_model=config.get("underreporting_model", "default"),
+        n_freqs=config["n_freqs"],
+        t_scale=data["t_scale"],
+        population_size=data["population_size"],
+        E0_init=config["E0"],
+        I0_init=config["I0"],
+        R0_init=config["R0"],
+        solver=model_utils.solver_mapper[config["solver"]],
+        solver_kwargs=config["solver_kwargs"],
+        k1_init=config["k1_init"],
+        k2_init=config["k2_init"],
+        k3_init=config["k3_init"],
+        T_peak_init=config["T_peak_init"],
+        T_max=config["T_max"],
+        dt = config["dt"],
+        key=model_key,
+        init_par_vmr=config.get("init_par_vmr", 1.0),
+        init_sigma_C=config.get("init_sigma_C", 1.0),
+        reporting_delay=config.get("reporting_delay", 3)  # days, delay between infection and reporting
+    )
+
+
+    @eqx.filter_value_and_grad
+    def grad_loss(model, t_all, t_phase_1, t_mask_ids_I, t_mask_ids_conc, obs_cases, obs_conc):
+        # Forward pass
+        pred_conc, I_new_7d_pred = model(t_all, t_phase_1)
+
+        # Select observed timestamps from predictions
+        I_new_7d_sel = I_new_7d_pred[t_mask_ids_I]
+
+        # Masks to ignore NaNs from 7-day window/reporting delay and missing obs
+        I_valid = (~jnp.isnan(I_new_7d_sel))
+
+        pred_I_masked = jnp.where(I_valid, I_new_7d_sel, 0.0)
+        obs_I_masked  = jnp.where(I_valid, obs_cases, 0.0)
+
+        # Pull σ from the model
+        # sigma_I = jnp.exp(model.log_sigma_I)
+        vmr_I = 1.0 + jax.nn.softplus(model.par_vmr)
+
+        I_mask = jnp.sum(jnp.where(I_valid, 1, 0))
+
+        # ----- Negative binomial NLL for case counts -----
+        # Convert (mean, VMR) -> (r, p)
+        eps = 1e-8
+        # p = 1 / VMR  (independent of μ)
+        p_nb = jnp.clip(1.0 / vmr_I, eps, 1.0 - eps)
+        # r = μ / (VMR - 1)
+        r_nb = jnp.clip(pred_I_masked / jnp.maximum(vmr_I - 1.0, eps), eps, 1e12)
+
+        # Count data (assumed integer non-negative)
+        k = jnp.clip(obs_I_masked, 0.0, 1e12)
+
+        # log PMF: log C(k+r-1, k) + r log p + k log(1-p)
+        logpmf_nb = (
+            gammaln(k + r_nb) - gammaln(r_nb) - gammaln(k + 1.0)
+            + r_nb * jnp.log(p_nb) + k * jnp.log1p(-p_nb)
+        )
+
+        nll_I = -jnp.sum(jnp.where(I_valid, logpmf_nb, 0.0))
+
+        any_inf = jnp.any(jnp.isinf(I_new_7d_sel)) 
+        any_nan = jnp.isnan(nll_I / jnp.maximum(I_mask, 1)) 
+        return jnp.where(any_inf | any_nan, jnp.inf, (nll_I / I_mask) + config.get("reg_norm")*model.beta_regularization_loss(ts=t_all, mode=config.get("regularization_mode"))) + config.get("underreporting_reg_norm", 0)*model.underreporting_regularization_loss(ts=t_all, mode=config.get("underreporting_regularization_mode", "None"))
+
+    def plain_negll(model, t_all, t_phase_1, t_mask_ids_I, t_mask_ids_conc, obs_cases, obs_conc):
+        # Forward pass
+        pred_conc, I_new_7d_pred = model(t_all, t_phase_1)
+
+        # Select observed timestamps from predictions
+        I_new_7d_sel = I_new_7d_pred[t_mask_ids_I]
+
+        # Masks to ignore NaNs from 7-day window/reporting delay and missing obs
+        I_valid = (~jnp.isnan(I_new_7d_sel))
+
+        pred_I_masked = jnp.where(I_valid, I_new_7d_sel, 0.0)
+        obs_I_masked  = jnp.where(I_valid, obs_cases, 0.0)
+
+        # Pull σ from the model
+        # sigma_I = jnp.exp(model.log_sigma_I)
+        sigma_C = jnp.exp(model.log_sigma_C)
+        vmr_I = 1.0 + jax.nn.softplus(model.par_vmr)
+
+        I_mask = jnp.sum(jnp.where(I_valid, 1, 0))
+
+        # ----- Negative binomial NLL for case counts -----
+        # Convert (mean, VMR) -> (r, p)
+        eps = 1e-8
+        # p = 1 / VMR  (independent of μ)
+        p_nb = jnp.clip(1.0 / vmr_I, eps, 1.0 - eps)
+        # r = μ / (VMR - 1)
+        r_nb = jnp.clip(pred_I_masked / jnp.maximum(vmr_I - 1.0, eps), eps, 1e12)
+
+        # Count data (assumed integer non-negative)
+        k = jnp.clip(obs_I_masked, 0.0, 1e12)
+
+        # log PMF: log C(k+r-1, k) + r log p + k log(1-p)
+        logpmf_nb = (
+            gammaln(k + r_nb) - gammaln(r_nb) - gammaln(k + 1.0)
+            + r_nb * jnp.log(p_nb) + k * jnp.log1p(-p_nb)
+        )
+
+        nll_I = -jnp.sum(jnp.where(I_valid, logpmf_nb, 0.0))
+
+        any_inf = jnp.any(jnp.isinf(I_new_7d_sel))
+        any_nan = jnp.isnan(nll_I / jnp.maximum(I_mask, 1))
+        return jnp.where(any_inf | any_nan, jnp.inf, (nll_I / I_mask)) # + config.get("reg_norm")*model.regularization_loss(ts=t_all, mode=config.get("regularization_mode")))
+
+    @eqx.filter_jit
+    def make_step(t_all, t_phase_1, I_train, conc_train, t_mask_I_train, t_mask_conc_train, model, opt_state):
+        loss, grads = grad_loss(model, t_all, t_phase_1, t_mask_I_train, t_mask_conc_train, I_train, conc_train)
+        updates, opt_state = optim.update(grads, opt_state)
+        model = eqx.apply_updates(model, updates)
+        return loss, model, opt_state
+
+    for stage, (lr, steps) in enumerate(zip(config["lr_strategy"], config["steps_strategy"])):
+        stage_tag = f"stage_{stage+1}"
+
+        if writer:
+            print(f"Training {stage_tag} with learning rate {lr} for {steps} steps")
+
+        optim = optax.adabelief(lr)
+        opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
+
+        best_val_negll = jnp.inf
+        loss = jnp.inf
+        best_model = model
+        for step in range(steps):
+            val_negll = plain_negll(model, data["t_all"], data["t_phase_1"], data["t_mask_I_val"], data["t_mask_conc_val"], data["I_val"], data["conc_val"])
+            if val_negll < best_val_negll:
+                best_val_negll = val_negll
+                best_model = model
+                train_loss = loss
+            global_step = sum(config["steps_strategy"][:stage]) + step
+            loss, model, opt_state = make_step(data["t_all"], data["t_phase_1"], data["I_train"], data["conc_train"], data["t_mask_I_train"], data["t_mask_conc_train"], model, opt_state)
+
+            # Single guard: restore previous good model on NaN/Inf and break
+            if jnp.isnan(loss) or jnp.isinf(loss):
+                if writer:
+                    print(f"✱ Caught invalid loss at stage {stage}, step {step}; restoring previous model and breaking.")
+                break
+
+    # Final training loss (same masking as during training)
+    train_nll = plain_negll(best_model, data["t_all"], data["t_phase_1"], data["t_mask_I_train"], data["t_mask_conc_train"], data["I_train"], data["conc_train"])
+    val_nll = plain_negll(best_model, data["t_all"], data["t_phase_1"], data["t_mask_I_val"], data["t_mask_conc_val"], data["I_val"], data["conc_val"])
+    total_nll = plain_negll(best_model, data["t_all"], data["t_phase_1"], data["t_mask_I_all"], data["t_mask_conc_all"], data["I_all"], data["eval_conc"])
+    return best_model, total_nll, train_nll, val_nll, train_loss
+
+
+
+
 def two_phase_integrative_model_train_and_evaluate(config, writer, experiment_log_dir, trial=1, print_every=100):
     
     data = two_phase_integrative_model_load_data(config)

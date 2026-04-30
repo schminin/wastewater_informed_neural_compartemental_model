@@ -13,6 +13,8 @@ parser.add_argument("--town", type=str, required=True, help="Town name.")
 parser.add_argument("--objective", type=str, required=False, help="Objective function to optimize", default="cases_and_conc")
 parser.add_argument("--prev_phase_cut_date", type=str, required=False, help="Date to cut phases, format YYYY-MM-DD", default=None)
 parser.add_argument("--n_days_pred_conc", type=int, required=False, default=0)
+parser.add_argument("--substance_normalization", type=str, required=False, default="flow")
+parser.add_argument("--gene_target", type=str, required=False, default="N1")
 
 args = parser.parse_args()
 town = args.town
@@ -21,7 +23,10 @@ prev_phase_cut_date = args.prev_phase_cut_date
 objective = args.objective
 
 if town=="Bonn":
-    if args.n_days_pred_conc == 0:
+    if not (args.substance_normalization == "flow" and args.gene_target == "N1"):
+        model_path = f"{town}_{args.substance_normalization}_{args.gene_target}/multistart_models/{phase_cut_date}_{objective}"
+        out_dir = f"{town}_{args.substance_normalization}_{args.gene_target}/multistart_results/{phase_cut_date}_{objective}"
+    elif args.n_days_pred_conc == 0:
         model_path = f"{town}/multistart_models/{phase_cut_date}_{objective}"
         out_dir = f"{town}/multistart_results/{phase_cut_date}_{objective}"
     else:
@@ -31,6 +36,7 @@ else:
     model_path = f"{town}/multistart_models/{phase_cut_date}_prev{prev_phase_cut_date}_{objective}"
     out_dir = f"{town}/multistart_results/{phase_cut_date}_prev{prev_phase_cut_date}_{objective}"
 os.makedirs(out_dir, exist_ok=True)
+
 
 def load_seed_metrics(dir_path: str | Path = model_path) -> pd.DataFrame:
     """

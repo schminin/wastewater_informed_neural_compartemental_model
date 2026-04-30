@@ -77,6 +77,10 @@ with open(f"{out_dir}/ensemble_members.txt", "w") as f:
     print(f"Dropped {len_pre - len_post} of {len_pre} rows due to optimization failure.", file = f)
     print(f"Considering {len(df_nsmallest)} members for ensemble evaluation.", file=f)
 
+pd.DataFrame({"seed": model_ids, "reporting_delay": reporting_delays}).to_csv(
+    f"{out_dir}/ensemble_members.csv", index=False
+)
+
 base_config = {
         # General settings
         "seed": 0,  # random seed
@@ -176,7 +180,7 @@ def get_model_predictions(model, t_all, t_phase_1):
 def get_ensemble_predictions(model_ids, reporting_delays, t_all, t_phase_1, multistart_result_path, 
                              quantiles=(0.025, 0.5, 0.975)):
     # Collect predictions for each model
-    all_SEIR, all_beta, all_R, all_underrep, all_I7, all_logC, all_shedding, all_pos_rate = [], [], [], [], [], [], [], []
+    all_SEIR, all_beta, all_R, all_underrep, all_I7, all_logC, all_shedding, all_pos_rate, all_noise_params = [], [], [], [], [], [], [], [], []
     for model_id, reporting_delay in zip(model_ids, reporting_delays):
         base_model = two_phase_integrative_ude.IntegrativeModel(
             width_size=base_config["width_size"],
@@ -212,6 +216,10 @@ def get_ensemble_predictions(model_ids, reporting_delays, t_all, t_phase_1, mult
         all_logC.append(preds["log_concentration"])
         all_shedding.append(preds["shedding_curve"])
         all_pos_rate.append(preds["pos_rate"])
+        all_noise_params.append(jnp.asarray((
+            1.0 + jax.nn.softplus(m.par_vmr),
+            jnp.exp(m.log_sigma_C),
+        )))
 
     # Stack arrays along ensemble axis
     all_SEIR = jnp.stack(all_SEIR)            # [n_models, T, 4]
@@ -222,6 +230,7 @@ def get_ensemble_predictions(model_ids, reporting_delays, t_all, t_phase_1, mult
     all_logC = jnp.stack(all_logC)            # [n_models, T']
     all_shedding = jnp.stack(all_shedding)    # [n_models, T_max+1]
     all_pos_rate = jnp.stack(all_pos_rate)    # [n_models, T]
+    all_noise_params = jnp.stack(all_noise_params)  # [n_models, n_noise_parameters]
 
     def summary(arr):
         return {
@@ -239,6 +248,7 @@ def get_ensemble_predictions(model_ids, reporting_delays, t_all, t_phase_1, mult
         "log_concentration": summary(all_logC),
         "shedding_curve": summary(all_shedding),
         "test_positive_rate": summary(all_pos_rate),
+        "noise_parameters": all_noise_params,
     }
 
 
@@ -484,10 +494,11 @@ def plot_test_positive_rate_ensemble(ensemble_preds, dates_all, prev_phase_cut_d
 ensemble_predictions = get_ensemble_predictions(model_ids, reporting_delays, data["t_all"], data["t_phase_1"],
                                                 multistart_path, quantiles=(0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975)) # 50%, 90%, 95% confidence intervals 
 
-os.makedirs(out_dir, exist_ok=True)
-
-for key in ensemble_predictions.keys():
-   jnp.savez(f"{out_dir}/ensemble_predictions_{key}.npz", **ensemble_predictions[key])
+for key, value in ensemble_predictions.items():
+    if isinstance(value, dict):
+        jnp.savez(f"{out_dir}/ensemble_predictions_{key}.npz", **value)
+    else:
+        jnp.savez(f"{out_dir}/ensemble_predictions_{key}.npz", all=value)
 
 
 
@@ -516,4 +527,3 @@ fig5.savefig(f"{out_dir}/multistart_ensemble_5_Rt.png", bbox_inches='tight')
 fig6.savefig(f"{out_dir}/multistart_ensemble_6_underreporting.png", bbox_inches='tight')
 fig7.savefig(f"{out_dir}/multistart_ensemble_7_shedding.png", bbox_inches='tight')
 fig8.savefig(f"{out_dir}/multistart_ensemble_8_test_positivity.png", bbox_inches='tight')
-

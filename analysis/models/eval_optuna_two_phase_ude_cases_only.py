@@ -127,23 +127,23 @@ def per_observable_likelihood(model, t_all, t_phase_1, t_mask_ids_I, t_mask_ids_
 
     # Select observed timestamps from predictions
     I_new_7d_sel = I_new_7d_pred[t_mask_ids_I]
-    conc_sel     = pred_conc[t_mask_ids_conc]  # shift because 'valid' conv starts at T_max
+    #conc_sel     = pred_conc[t_mask_ids_conc]  # shift because 'valid' conv starts at T_max
 
     # Masks to ignore NaNs from 7-day window/reporting delay and missing obs
     I_valid = (~jnp.isnan(I_new_7d_sel))
-    C_valid = (~jnp.isnan(conc_sel))
+    #C_valid = (~jnp.isnan(conc_sel))
 
     pred_I_masked = jnp.where(I_valid, I_new_7d_sel, 0.0)
     obs_I_masked  = jnp.where(I_valid, obs_cases, 0.0)
-    pred_C_masked = jnp.where(C_valid, conc_sel, 0.0)
-    obs_C_masked  = jnp.where(C_valid, obs_conc, 0.0)
+    #pred_C_masked = jnp.where(C_valid, conc_sel, 0.0)
+   # obs_C_masked  = jnp.where(C_valid, obs_conc, 0.0)
 
     # Pull σ from the model
     vmr_I = 1.0 + jax.nn.softplus(model.par_vmr)
-    sigma_C = jnp.exp(model.log_sigma_C)
+    #sigma_C = jnp.exp(model.log_sigma_C)
 
     I_mask = jnp.sum(jnp.where(I_valid, 1, 0))
-    C_mask = jnp.sum(jnp.where(C_valid, 1, 0))
+    #C_mask = jnp.sum(jnp.where(C_valid, 1, 0))
 
      # ----- Negative binomial NLL for case counts -----
     # Convert (mean, VMR) -> (r, p)
@@ -163,9 +163,9 @@ def per_observable_likelihood(model, t_all, t_phase_1, t_mask_ids_I, t_mask_ids_
     )
 
     nll_I = -jnp.sum(jnp.where(I_valid, logpmf_nb, 0.0))
-    nll_C = 0.5 * jnp.sum(((pred_C_masked - obs_C_masked) / sigma_C) ** 2) + 0.5 * jnp.log(2 * jnp.pi * sigma_C ** 2) * C_mask
+    #nll_C = 0.5 * jnp.sum(((pred_C_masked - obs_C_masked) / sigma_C) ** 2) + 0.5 * jnp.log(2 * jnp.pi * sigma_C ** 2) * C_mask
 
-    return (nll_I / I_mask), (nll_C / C_mask), (nll_I / I_mask) + (nll_C / C_mask)
+    return (nll_I / I_mask), None, None
 
 train_negll_I, train_negll_c, train_negll = per_observable_likelihood(model, data["t_all"], data["t_phase_1"], data["t_mask_I_train"], data["t_mask_conc_train"], data["I_train"], data["conc_train"])
 val_negll_I, val_negll_c, val_negll = per_observable_likelihood(model, data["t_all"], data["t_phase_1"], data["t_mask_I_val"], data["t_mask_conc_val"], data["I_val"], data["conc_val"])
@@ -176,16 +176,16 @@ print(f"Model 1: train_negll_I: {train_negll_I}, val_negll_I: {val_negll_I}, tot
 print(f"Model 1: train_negll_c: {train_negll_c}, val_negll_c: {val_negll_c}, total_negll_c: {total_negll_c}", flush=True)
 
 meta = {
-            "train_negll": float(train_negll),
-            "val_negll": float(val_negll),
-            "total_negll": float(total_negll),
+            #"train_negll": float(train_negll),
+            #"val_negll": float(val_negll),
+            #"total_negll": float(total_negll),
             "train_negll_I": float(train_negll_I),
             "val_negll_I": float(val_negll_I),
             "test_negll_I": float(test_negll_I),
             "total_negll_I": float(total_negll_I),
-            "train_negll_c": float(train_negll_c),
-            "val_negll_c": float(val_negll_c),
-            "total_negll_c": float(total_negll_c),
+            #"train_negll_c": float(train_negll_c),
+            #"val_negll_c": float(val_negll_c),
+            #"total_negll_c": float(total_negll_c),
             "k1": float(jnp.exp(model.log_k1)),
             "k2": float(jax.nn.sigmoid(model.logit_k2)*(2.5-0.6) + 0.6),
             "k3": float(jax.nn.sigmoid(model.logit_k3)*(2.0-0.15) + 0.15),
@@ -340,16 +340,16 @@ for i in range(1, 10):
     eqx.tree_serialise_leaves(model_path / f"best_10/{i+1}_model.eqx", model)
     meta = {
                 "trial_number": int(new_config["trial_number"]),
-                "train_negll": float(train_negll),
-                "val_negll": float(val_negll),
-                "total_negll": float(total_negll),
+                #"train_negll": float(train_negll),
+                #"val_negll": float(val_negll),
+                #"total_negll": float(total_negll),
                 "train_negll_I": float(train_negll_I),
                 "val_negll_I": float(val_negll_I),
                 "test_negll_I": float(test_negll_I),
                 "total_negll_I": float(total_negll_I),
-                "train_negll_c": float(train_negll_c),
-                "val_negll_c": float(val_negll_c),
-                "total_negll_c": float(total_negll_c),
+                #"train_negll_c": float(train_negll_c),
+                #"val_negll_c": float(val_negll_c),
+                #"total_negll_c": float(total_negll_c),
                 "train_loss": float(train_loss), 
                 "k1": float(jnp.exp(model.log_k1)),
                 "k2": float(jax.nn.sigmoid(model.logit_k2)*(2.5-0.6) + 0.6),

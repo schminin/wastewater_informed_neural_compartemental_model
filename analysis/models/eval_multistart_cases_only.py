@@ -69,10 +69,10 @@ df = df.loc[df.k1.notna()]
 len_post = len(df)
 
 # calculate train/val negll
-train_val_negll_c = (df["train_negll_c"]*df["n_obs_train_c"] + df["val_negll_c"]*df["n_obs_val_c"])/(df["n_obs_train_c"] + df["n_obs_val_c"])
+# train_val_negll_c = (df["train_negll_c"]*df["n_obs_train_c"] + df["val_negll_c"]*df["n_obs_val_c"])/(df["n_obs_train_c"] + df["n_obs_val_c"])
 train_val_negll_I = (df["train_negll_I"]*df["n_obs_train_I"] + df["val_negll_I"]*df["n_obs_val_I"])/(df["n_obs_train_I"] + df["n_obs_val_I"])
-df.loc[:,"train_val_negll"] = train_val_negll_c + train_val_negll_I
-df_sub = df.loc[(train_val_negll_c <= train_val_negll_c.quantile(0.25)) & (train_val_negll_I <= train_val_negll_I.quantile(0.25))].sort_values("train_val_negll")
+df.loc[:,"train_val_negll"] =  train_val_negll_I
+df_sub = df.loc[(train_val_negll_I <= train_val_negll_I.quantile(0.25))].sort_values("train_val_negll")
 
 df_nsmallest = df_sub.nsmallest(int(len(df) * cutoff_value), 'train_val_negll')
 model_ids = df_nsmallest["seed"].tolist()
@@ -379,7 +379,7 @@ def plot_Rt_ensemble(ensemble_preds, dates_all, phase_cut_date):
     Rt_low  = ensemble_preds["R_eff"]["quantiles"][0.025]
     Rt_high = ensemble_preds["R_eff"]["quantiles"][0.975]
 
-    fig, ax = plt.subplots(figsize=(6, 2.5), dpi=300)
+    fig, ax = plt.subplots(figsize=(6, 3), dpi=300)
     ax.axvline(pd.to_datetime(phase_cut_date), color="#595959", linestyle='--', label="Phase split")
     ax.fill_between(dates_all[7:], Rt_low[7:], Rt_high[7:], color="saddlebrown", alpha=0.15, label="95% CI")
     Rt_low  = ensemble_preds["R_eff"]["quantiles"][0.05]

@@ -33,6 +33,8 @@ parser = argparse.ArgumentParser(description="Run two-phase integrative UDE Optu
 parser.add_argument("--phase_cut_date", type=str, required=True, help="Date to cut phases, format YYYY-MM-DD")
 parser.add_argument("--objective", type=str, required=False, help="Objective function to optimize", default="cases_and_conc")
 parser.add_argument("--n_days_pred_conc", type=int, required=False, default=0)
+parser.add_argument("--substance_normalization", type=str, required=False, default="flow")
+parser.add_argument("--gene_target", type=str, required=False, default="N1")
 
 args = parser.parse_args()
 
@@ -46,8 +48,8 @@ base_config = {
             "sampling_area": "North_South",
             "project": "both", # one of ESI_CorA, AMELAG
             "max_precipitation_subsetting": None, # one of None, dry, light_rain
-            "substance_normalization": "flow", # one of None, PMMoV, flow
-            "gene_target": "N1", # one of N1, N2
+            "substance_normalization": args.substance_normalization, # one of None, PMMoV, flow
+            "gene_target": args.gene_target, # one of N1, N2
             "log_scale": True, # this only considers WW measurements, not case counts
         },
         
@@ -61,9 +63,9 @@ base_config = {
 base_config["phase_cut_date"] = args.phase_cut_date
 base_config["n_days_pred_conc"] = args.n_days_pred_conc
 if base_config["n_days_pred_conc"]>0:
-    model_path = pathlib.Path(f"Bonn/optuna_best_{base_config['phase_cut_date']}_{args.objective}_pred_{base_config['n_days_pred_conc']}d_conc")
+    model_path = pathlib.Path(f"Bonn_{args.substance_normalization}_{args.gene_target}/optuna_best_{base_config['phase_cut_date']}_{args.objective}_pred_{base_config['n_days_pred_conc']}d_conc")
 else:
-    model_path = pathlib.Path(f"Bonn/optuna_best_{base_config['phase_cut_date']}_{args.objective}")
+    model_path = pathlib.Path(f"Bonn_{args.substance_normalization}_{args.gene_target}/optuna_best_{base_config['phase_cut_date']}_{args.objective}")
 
 def build_config_from_saved(base_config, hparams: dict) -> dict:
     """Merge base config from integrative_ude_optuna.py with saved trial params."""
@@ -273,7 +275,7 @@ def get_hp_config_from_trial(study_df_row, base_config):
     base.update(hp_config)
     return base
 
-storage = f"sqlite:///Bonn/optuna_study_two_phase_model_{config['phase_cut_date']}.db"
+storage = f"sqlite:///Bonn_{args.substance_normalization}_{args.gene_target}_optuna_study_two_phase_model_{config['phase_cut_date']}.db?timeout=600&journal_mode=WAL"
 
 study = optuna.create_study(
     study_name="ude_hp_search_cc_ude",
@@ -287,16 +289,7 @@ best_10_models = df_optuna.sort_values("user_attrs_val_nll").iloc[:10]
 for i in range(1, 10):
     os.makedirs(model_path / f"best_10", exist_ok=True)
     new_config = get_hp_config_from_trial(best_10_models.iloc[i], base_config)
-    if args.objective == "cases_and_conc":
-        model, total_nll, train_nll, val_nll, train_loss = optimization_utils.two_phase_integrative_model_train_and_evaluate(new_config, None, "todo", print_every=100, trial=new_config["trial_number"])
-    elif args.objective == "prev_and_conc":
-        model, total_nll, train_nll, val_nll, train_loss = optimization_utils.two_phase_integrative_model_train_and_evaluate_prevalence_objective(new_config, None, "todo", print_every=100, trial=new_config["trial_number"])
-    elif args.objective == "three_objectives":
-        model, total_nll, train_nll, val_nll, train_loss = optimization_utils.two_phase_integrative_model_train_and_evaluate_three_objectives(new_config, None, "todo", print_every=100, trial=new_config["trial_number"])
-    elif args.objective == "cases_only":
-        model, total_nll, train_nll, val_nll, train_loss = optimization_utils.two_phase_integrative_model_train_and_evaluate_cases_only(new_config, None, "todo", print_every=100, trial=new_config["trial_number"])
-    else:
-        raise ValueError(f"Unknown objective function: {args.objective}")    
+    model, total_negll, train_negll, val_negll, train_loss = optimization_utils.two_phase_integrative_model_train_and_evaluate(new_config, None, "todo", print_every=100, trial=new_config["trial_number"])
     train_negll_I, train_negll_c, train_negll = per_observable_likelihood(model, data["t_all"], data["t_phase_1"], data["t_mask_I_train"], data["t_mask_conc_train"], data["I_train"], data["conc_train"])
     val_negll_I, val_negll_c, val_negll = per_observable_likelihood(model, data["t_all"], data["t_phase_1"], data["t_mask_I_val"], data["t_mask_conc_val"], data["I_val"], data["conc_val"])
     total_negll_I, total_negll_c, total_negll = per_observable_likelihood(model, data["t_all"], data["t_phase_1"], data["t_mask_I_all"], data["t_mask_conc_all"], data["I_all"], data["eval_conc"])
